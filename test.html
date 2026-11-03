@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HN Semantic Search</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; }
+    
+    .toolbar { display: flex; gap: 10px; margin-bottom: 15px; }
+    .toolbar button {
+      padding: 8px 16px; border-radius: 6px; border: 1px solid #ccc;
+      background: #fff; cursor: pointer; font-weight: 600; font-size: 0.95rem;
+    }
+    .toolbar button.active { background: #ff6600; color: #fff; border-color: #ff6600; }
+    
+    input { width: 100%; padding: 12px; font-size: 1rem; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
+    input:focus { outline: 2px solid #ff6600; border-color: transparent; }
+    
+    .hit { border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; margin: 12px 0; background: #fff; }
+    .hit:hover { border-color: #ff6600; }
+    .sim { color: #ff6600; font-weight: 600; font-size: .85rem; margin-right: 6px; }
+    a { color: #1a0dab; text-decoration: none; font-weight: 500; }
+    a:hover { text-decoration: underline; }
+    .meta { color: #666; font-size: .82rem; margin-top: 6px; }
+    
+    /* Styles for the AI Answer Box */
+    .ai-answer {
+      background: #fff8e6; border: 1px solid #ffd580; border-left: 5px solid #ff6600;
+      padding: 16px; border-radius: 8px; margin-bottom: 24px; line-height: 1.6;
+    }
+    .ai-answer strong { display: block; margin-bottom: 8px; font-size: 1.1rem; }
+    .loading { color: #666; font-style: italic; }
+  </style>
+</head>
+<body>
+
+  <h1>HN Semantic Search</h1>
+  
+  <div class="toolbar">
+    <button id="btn-search" class="active" onclick="setMode('search')">🔍 Search</button>
+    <button id="btn-ask" onclick="setMode('ask')">🤖 Ask AI</button>
+  </div>
+
+  <input id="q" placeholder="Type a query, press Enter..." autofocus>
+  
+  <div id="out" style="margin-top: 20px;"></div>
+
+<script>
+  const API = "http://localhost:8000";
+  const qInput = document.getElementById("q");
+  const out = document.getElementById("out");
+  
+  let currentMode = "search"; // "search" or "ask"
+
+  // Handle switching between Search and Ask AI
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById("btn-search").className = mode === "search" ? "active" : "";
+    document.getElementById("btn-ask").className = mode === "ask" ? "active" : "";
+    
+    qInput.placeholder = mode === "search" 
+      ? "Search stories by meaning..." 
+      : "Ask a question about these stories...";
+    qInput.focus();
+  }
+
+  // Handle pressing Enter
+  qInput.addEventListener("keydown", async e => {
+    if (e.key !== "Enter" || !qInput.value.trim()) return;
+    
+    const query = qInput.value.trim();
+    const endpoint = currentMode === "ask" ? "/ask" : "/search";
+    
+    out.innerHTML = `<p class="loading">${currentMode === "ask" ? "Thinking..." : "Searching..."}</p>`;
+    
+    try {
+      const res = await fetch(`${API}${endpoint}?q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data = await res.json();
+      
+      out.innerHTML = "";
+      
+      if (currentMode === "ask") {
+        // Render AI Answer
+        const answerBox = document.createElement("div");
+        answerBox.className = "ai-answer";
+        // Convert newlines to <br> for display
+        answerBox.innerHTML = `<strong>🤖 AI Answer:</strong>${data.answer.replace(/\n/g, "<br>")}`;
+        out.appendChild(answerBox);
+        
+        // Render Sources
+        const header = document.createElement("h3");
+        header.textContent = "Sources used:";
+        header.style.fontSize = "1rem";
+        out.appendChild(header);
+        
+        data.sources.forEach((hit, i) => {
+          out.appendChild(createHit(hit, `[${i + 1}] `));
+        });
+        
+      } else {
+        // Render normal search results
+        if (data.length === 0) out.innerHTML = "No results found.";
+        data.forEach(hit => out.appendChild(createHit(hit)));
+      }
+      
+    } catch (err) {
+      out.innerHTML = `<p style="color: red;">Error: ${err.message}. Is the Uvicorn server running?</p>`;
+    }
+  });
+
+  // Helper to draw a single story
+  function createHit(hit, prefix = "") {
+    const div = document.createElement("div");
+    div.className = "hit";
+    
+    const url = hit.url || `https://news.ycombinator.com/item?id=${hit.id}`;
+    
+    div.innerHTML = `
+      <span class="sim">${hit.similarity ? hit.similarity.toFixed(3) : ''}</span>
+      <span style="font-weight: bold; color: #666;">${prefix}</span>
+      <a href="${url}" target="_blank" rel="noopener">${hit.title}</a>
+      <div class="meta">by ${hit.by} · ${hit.score} points</div>
+    `;
+    return div;
+  }
+</script>
+</body>
+</html>

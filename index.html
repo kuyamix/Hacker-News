@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Local AI reader for Hacker News.">
+  <title>Local HN Reader</title>
+  <style>
+    :root {
+      --bg: #f6f6ef; --card-bg: #ffffff; --text: #1a1a1a; --muted: #6b6b6b;
+      --faint: #9a9a9a; --accent: #ff6600; --accent-hover: #e65c00;
+      --link: #1a0dab; --border: #e2e2dc; --error-bg: #fdecef;
+      --error-border: #f5c2cb; --error-text: #b00020;
+      --ai-bg: #fff8e6; --ai-border: #ffd580;
+      --radius: 10px; --shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1a1a1a; --card-bg: #242424; --text: #e8e8e8; --muted: #a0a0a0;
+        --faint: #7a7a7a; --link: #7ab4ff; --border: #333;
+        --error-bg: #3a1418; --error-border: #7a2530; --error-text: #ff8a9a;
+        --ai-bg: #2a2415; --ai-border: #5c4a1a;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      max-width: 780px; margin: 0 auto; padding: 32px 20px 80px;
+      background: var(--bg); color: var(--text); line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    header { display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px; margin-bottom: 4px; }
+    h1 { font-size: 1.5rem; margin: 0; letter-spacing: -0.02em; }
+    h1 .logo { color: var(--accent); }
+    .subtitle { color: var(--muted); font-size: 0.88rem; margin: 4px 0 18px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      margin-bottom: 14px; }
+    .toolbar button {
+      padding: 7px 15px; font-size: 0.92rem; font-family: inherit;
+      border: 1px solid var(--border); background: var(--card-bg); color: var(--text);
+      border-radius: 7px; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.05s;
+    }
+    .toolbar button:hover { background: var(--border); }
+    .toolbar button:active { transform: scale(0.97); }
+    .toolbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .toolbar button[aria-pressed="true"] {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .toolbar .spacer { flex: 1; }
+    .icon-btn { display: inline-flex; align-items: center; gap: 6px; }
+
+    .searchbar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+    .searchbar input {
+      flex: 1; padding: 9px 13px; border: 1px solid var(--border);
+      border-radius: 8px; background: var(--card-bg); color: var(--text);
+      font-family: inherit; font-size: 0.92rem;
+    }
+    .searchbar input:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+    }
+
+    #list { background: var(--card-bg); border-radius: var(--radius);
+      box-shadow: var(--shadow); overflow: hidden; }
+
+    .story { padding: 16px 20px; border-bottom: 1px solid var(--border);
+      transition: background 0.12s; }
+    .story:last-child { border-bottom: none; }
+    .story:hover { background: rgba(255,102,0,0.04); }
+    .story.visited a.title { color: var(--faint); }              /* NEW */
+    .story.visited a.title::before { content: "✓ "; opacity: 0.5; } /* NEW */
+
+    .story .title-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+    .story .rank { color: var(--faint); font-size: 0.8rem;
+      font-variant-numeric: tabular-nums; min-width: 1.8em;
+      text-align: right; flex-shrink: 0; }
+    .story a.title { color: var(--link); text-decoration: none;
+      font-weight: 500; font-size: 1rem; word-break: break-word; }
+    .story a.title:hover { text-decoration: underline; }
+    .story a.title:focus-visible { outline: 2px solid var(--accent);
+      outline-offset: 2px; border-radius: 3px; }
+    .story .domain { color: var(--faint); font-size: 0.82rem; font-weight: 400; }
+    .story .meta { color: var(--muted); font-size: 0.82rem; margin-top: 6px;
+      display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+    .story .meta .score { color: var(--accent); font-weight: 600; }
+    .story .meta .dot { color: var(--faint); }
+
+    .sim-badge {                                           /* NEW */
+      background: var(--accent); color: #fff;
+      font-size: 0.7rem; font-weight: 700; padding: 1px 6px;
+      border-radius: 4px; font-variant-numeric: tabular-nums;
+    }
+    .snippet {                                             /* NEW */
+      margin-top: 8px; padding: 8px 10px;
+      background: rgba(255,102,0,0.05); border-left: 3px solid var(--accent);
+      border-radius: 4px; font-size: 0.85rem; color: var(--muted);
+    }
+    .snippet .label { font-weight: 600; color: var(--text); }
+
+    .comment-preview {                                     /* NEW */
+      margin-top: 8px; padding: 6px 10px; border-radius: 6px;
+      background: rgba(0,0,0,0.03); font-size: 0.85rem; color: var(--muted);
+      font-style: italic;
+    }
+    @media (prefers-color-scheme: dark) { .comment-preview { background: rgba(255,255,255,0.05); } }
+    .comment-preview .preview-author { color: var(--accent); font-style: normal;
+      font-weight: 600; margin-right: 6px; }
+
+    .ai-answer {
+      background: var(--ai-bg); border: 1px solid var(--ai-border);
+      border-left: 5px solid var(--accent); padding: 16px;
+      border-radius: var(--radius); margin-bottom: 20px;
+      line-height: 1.6; white-space: pre-wrap;
+    }
+    .ai-answer strong { display: block; margin-bottom: 8px; font-size: 1.05rem; }
+    .ai-answer .cursor { display: inline-block; width: 8px; height: 1em;
+      background: var(--accent); vertical-align: text-bottom;       /* NEW */
+      animation: blink 1s steps(2) infinite; margin-left: 2px; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .error {
+      color: var(--error-text); background: var(--error-bg);
+      border: 1px solid var(--error-border); padding: 16px 18px;
+      border-radius: var(--radius); margin: 0;
+    }
+    .error button {
+      margin-top: 10px; padding: 6px 14px; font-size: 0.85rem;
+      border: 1px solid var(--error-border); background: transparent;
+      color: var(--error-text); border-radius: 6px; cursor: pointer;
+    }
+    .error button:hover { background: rgba(176,0,32,0.08); }
+
+    .loading-state { display: flex; flex-direction: column; align-items: center;
+      gap: 12px; padding: 48px 20px; color: var(--muted); font-size: 0.9rem; }
+    .spinner { width: 26px; height: 26px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .skeleton {
+      background: linear-gradient(90deg, var(--border) 25%, transparent 37%, var(--border) 63%);
+      background-size: 400% 100%; animation: shimmer 1.4s ease infinite;
+      border-radius: 4px; height: 1em;
+    }
+    @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+    .footer { display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 12px; margin-top: 18px; padding: 0 4px;
+      color: var(--faint); font-size: 0.8rem; }
+
+    .shortcuts {                                           /* NEW */
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      display: none; align-items: center; justify-content: center;
+      z-index: 100; padding: 20px;
+    }
+    .shortcuts.open { display: flex; }
+    .shortcuts-inner {
+      background: var(--card-bg); padding: 24px 28px; border-radius: 12px;
+      max-width: 400px; width: 100%; box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+    }
+    .shortcuts h2 { margin: 0 0 12px; font-size: 1.1rem; }
+    .shortcuts dl { display: grid; grid-template-columns: 60px 1fr; gap: 8px 12px; margin: 0; }
+    .shortcuts dt { font-family: ui-monospace, monospace; font-weight: 700;
+      color: var(--accent); }
+    .shortcuts dd { margin: 0; font-size: 0.9rem; }
+    .shortcuts .close { margin-top: 16px; font-size: 0.8rem; color: var(--muted); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .spinner, .skeleton, .ai-answer .cursor { animation: none; }
+      html { scroll-behavior: auto; }
+    }
+    @media (max-width: 520px) {
+      body { padding: 20px 12px 60px; }
+      .story { padding: 13px 14px; }
+      h1 { font-size: 1.25rem; }
+      .story .rank { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1><span class="logo">🔥</span> Local HN Reader</h1>
+  </header>
+  <p class="subtitle">Hacker News, read + asked offline. Press <kbd>?</kbd> for shortcuts.</p>
+
+  <nav class="toolbar" aria-label="Feed selection">
+    <button data-feed="topstories" aria-pressed="true">Top</button>
+    <button data-feed="newstories" aria-pressed="false">New</button>
+    <button data-feed="beststories" aria-pressed="false">Best</button>
+    <button data-feed="askstories" aria-pressed="false">Ask</button>
+    <button data-feed="showstories" aria-pressed="false">Show</button>
+    <span class="spacer"></span>
+    <button id="reload" class="icon-btn" title="Reload current feed (R)">
+      <span aria-hidden="true">↻</span> Reload
+    </button>
+  </nav>
+
+  <div class="toolbar" style="margin-bottom: 8px;">
+    <button id="mode-keyword" aria-pressed="true" style="flex:1; font-size:0.85rem; padding:5px;">Keyword</button>
+    <button id="mode-semantic" aria-pressed="false" style="flex:1; font-size:0.85rem; padding:5px;">🔍 Semantic</button>
+    <button id="mode-ask" aria-pressed="false" style="flex:1; font-size:0.85rem; padding:5px;">🤖 Ask AI</button>
+  </div>
+
+  <div class="searchbar">
+    <input id="search" type="search"
+           placeholder="Filter loaded stories by title or author…"
+           aria-label="Search stories">
+    <button id="digest" class="icon-btn" title="Summarize today's top stories">
+      📝 Digest
+    </button>
+  </div>
+
+  <main id="list" aria-live="polite" aria-busy="true"></main>
+
+  <div class="footer">
+    <span id="updated">—</span>
+    <span id="backend-status">Checking backend…</span>
+  </div>
+
+  <div class="shortcuts" id="shortcuts" role="dialog" aria-modal="true" aria-labelledby="sc-title">
+    <div class="shortcuts-inner">
+      <h2 id="sc-title">Keyboard shortcuts</h2>
+      <dl>
+        <dt>?</dt><dd>Toggle this panel</dd>
+        <dt>/</dt><dd>Focus search</dd>
+        <dt>r</dt><dd>Reload current feed</dd>
+        <dt>1–5</dt><dd>Switch feed</dd>
+        <dt>m</dt><dd>Cycle modes</dd>
+        <dt>d</dt><dd>Run digest</dd>
+        <dt>Esc</dt><dd>Clear search / close panel</dd>
+        <dt>Enter</dt><dd>Ask AI (in Ask mode)</dd>
+      </dl>
+      <div class="close">Press Esc or click outside to close.</div>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+
+    const HN_API = "https://hacker-news.firebaseio.com/v0";
+    const LOCAL_API = "http://localhost:8000";
+    const LIMIT = 15;
+    const FEED_LABELS = {
+      topstories: "Top", newstories: "New", beststories: "Best",
+      askstories: "Ask", showstories: "Show"
+    };
+
+    const currentFeed = { name: "topstories" };
+    let loadedStories = [];
+    let currentMode = "keyword"; // "keyword" | "semantic" | "ask"
+    const commentCache = new Map(); // storyId -> text | null
+    const visited = new Set(
+      JSON.parse(localStorage.getItem("hn_visited") || "[]")
+    );
+
+    const listContainer = document.getElementById("list");
+    const updatedEl     = document.getElementById("updated");
+    const statusEl      = document.getElementById("backend-status");
+    const searchInput   = document.getElementById("search");
+    const feedButtons   = document.querySelectorAll(".toolbar button[data-feed]");
+    const reloadBtn     = document.getElementById("reload");
+    const digestBtn     = document.getElementById("digest");
+    const btnKeyword    = document.getElementById("mode-keyword");
+    const btnSemantic   = document.getElementById("mode-semantic");
+    const btnAsk        = document.getElementById("mode-ask");
+    const shortcutsEl   = document.getElementById("shortcuts");
+
+    // ---------- Helpers ----------
+    function el(tag, attrs = {}, text = "") {
+      const e = document.createElement(tag);
+      Object.entries(attrs).forEach(([k, v]) => {
+        if (v !== undefined && v !== null) e.setAttribute(k, v);
+      });
+      if (text) e.textContent = text;
+      return e;
+    }
+
+    function getDomain(url) {
+      try { return new URL(url).hostname.replace(/^www\./, ""); }
+      catch { return ""; }
+    }
+
+    function timeAgo(unixSeconds) {
+      if (!unixSeconds) return "";
+      const diff = Math.floor(Date.now() / 1000) - unixSeconds;
+      if (diff < 60) return "just now";
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+      return new Date(unixSeconds * 1000).toLocaleDateString(undefined, {
+        year: "numeric", month: "short", day: "numeric"
+      });
+    }
+
+    function plural(n, word) { return `${n} ${word}${n === 1 ? "" : "s"}`; }
+
+    function htmlToText(html) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      return (tmp.textContent || "").replace(/\s+/g, " ").trim();
+    }
+
+    function markVisited(id) {
+      if (!id) return;
+      visited.add(id);
+      localStorage.setItem("hn_visited", JSON.stringify([...visited]));
+    }
+
+    // ---------- URL persistence ----------
+    function syncURL() {
+      const params = new URLSearchParams(location.search);
+      params.set("feed", currentFeed.name);
+      params.set("mode", currentMode);
+      history.replaceState(null, "", "?" + params.toString());
+    }
+
+    function readURL() {
+      const params = new URLSearchParams(location.search);
+      const feed = params.get("feed");
+      const mode = params.get("mode");
+      if (feed && FEED_LABELS[feed]) currentFeed.name = feed;
+      if (mode && ["keyword", "semantic", "ask"].includes(mode)) currentMode = mode;
+    }
+
+    // ---------- Backend health ----------
+    async function checkBackend() {
+      try {
+        const res = await fetch(`${LOCAL_API}/health`, { signal: AbortSignal.timeout(2000) });
+        if (!res.ok) throw new Error();
+        const h = await res.json();
+        statusEl.textContent = `Backend ok · ${h.story_rows} stories · ${h.llm_model}`;
+        statusEl.style.color = "var(--muted)";
+        return true;
+      } catch {
+        statusEl.textContent = "Backend offline — start uvicorn server:app";
+        statusEl.style.color = "var(--error-text)";
+        return false;
+      }
+    }
+
+    // ---------- Rendering ----------
+    function renderSkeleton() {
+      listContainer.innerHTML = "";
+      listContainer.setAttribute("aria-busy", "true");
+      for (let i = 0; i < 5; i++) {
+        const row = el("div", { class: "story", "aria-hidden": "true" });
+        const title = el("div", { class: "skeleton" });
+        title.style.width = `${50 + Math.random() * 40}%`;
+        const meta = el("div", { class: "skeleton" });
+        meta.style.width = "35%"; meta.style.marginTop = "10px";
+        row.appendChild(title); row.appendChild(meta);
+        listContainer.appendChild(row);
+      }
+    }
+
+    function renderLoading(msg) {
+      listContainer.innerHTML = "";
+      listContainer.setAttribute("aria-busy", "true");
+      const wrap = el("div", { class: "loading-state" });
+      wrap.appendChild(el("div", { class: "spinner", "aria-hidden": "true" }));
+      wrap.appendChild(el("span", {}, msg));
+      listContainer.appendChild(wrap);
+    }
+
+    function renderError(message, isAi = false) {
+      listContainer.innerHTML = "";
+      listContainer.setAttribute("aria-busy", "false");
+      const box = el("div", { class: "error", role: "alert" });
+      box.appendChild(el("p", { style: "margin:0;font-weight:600" },
+        isAi ? "AI Backend Error" : "Could not load stories"));
+      box.appendChild(el("p", { style: "margin:6px 0 0;font-size:0.9rem" }, message));
+      if (isAi) {
+        box.appendChild(el("p",
+          { style: "margin:8px 0 0;font-size:0.8rem;color:var(--muted)" },
+          "Is the Uvicorn server running on port 8000?"));
+      } else {
+        const retry = el("button", {}, "Try again");
+        retry.addEventListener("click", () => loadStories(currentFeed.name));
+        box.appendChild(retry);
+      }
+      listContainer.appendChild(box);
+    }
+
+    function attachCommentPreview(wrap, story) {
+      if (!story.kids || story.kids.length === 0) return;
+
+      // Cache hit — render synchronously, no re-fetch on every keystroke.
+      if (commentCache.has(story.id)) {
+        const cached = commentCache.get(story.id);
+        if (cached) renderPreview(wrap, cached.by, cached.text);
+        return;
+      }
+
+      const preview = el("div", { class: "comment-preview" }, "Loading top comment…");
+      wrap.appendChild(preview);
+
+      fetch(`${HN_API}/item/${story.kids[0]}.json`, { cache: "no-store" })
+        .then(res => res.ok ? res.json() : null)
+        .then(comment => {
+          preview.remove();
+          if (!comment || !comment.text || comment.deleted || comment.dead) {
+            commentCache.set(story.id, null);
+            return;
+          }
+          const text = htmlToText(comment.text);
+          if (!text) { commentCache.set(story.id, null); return; }
+          const entry = { by: comment.by || "anonymous", text };
+          commentCache.set(story.id, entry);
+          renderPreview(wrap, entry.by, entry.text);
+        })
+        .catch(() => preview.remove());
+    }
+
+    function renderPreview(wrap, by, text) {
+      const clipped = text.length > 180 ? text.slice(0, 180).trim() + "…" : text;
+      const preview = el("div", { class: "comment-preview" });
+      preview.appendChild(el("span", { class: "preview-author" }, `💬 ${by}`));
+      preview.appendChild(document.createTextNode(clipped));
+      wrap.appendChild(preview);
+    }
+
+    // Renders a story from either the HN API or the FastAPI backend.
+    function renderStory(story, rank) {
+      const wrap = el("article", { class: "story" });
+      if (visited.has(story.id)) wrap.classList.add("visited");
+
+      const titleRow = el("div", { class: "title-row" });
+      if (rank) titleRow.appendChild(el("span",
+        { class: "rank", "aria-hidden": "true" }, `${rank}.`));
+
+      // Similarity badge (only present on backend results).
+      if (story.similarity !== undefined && story.similarity !== null) {
+        const badge = el("span", { class: "sim-badge", title: "Retrieval score" });
+        badge.textContent = story.similarity.toFixed(2);
+        titleRow.appendChild(badge);
+      }
+
+      const url = story.url || `https://news.ycombinator.com/item?id=${story.id}`;
+      const titleLink = el("a",
+        { class: "title", href: url, target: "_blank", rel: "noopener noreferrer" });
+      titleLink.textContent = story.title;
+      titleLink.addEventListener("click", () => markVisited(story.id));
+      titleRow.appendChild(titleLink);
+
+      if (story.url) {
+        const domain = getDomain(story.url);
+        if (domain) titleRow.appendChild(el("span", { class: "domain" }, `(${domain})`));
+      }
+      wrap.appendChild(titleRow);
+
+      const meta = el("div", { class: "meta" });
+      if (story.score !== undefined) {
+        meta.appendChild(el("span", { class: "score" }, plural(story.score ?? 0, "point")));
+        meta.appendChild(el("span", { class: "dot" }, "·"));
+      }
+      meta.appendChild(el("span", {}, `by ${story.by || "unknown"}`));
+
+      if (story.descendants !== undefined && story.descendants !== null) {
+        meta.appendChild(el("span", { class: "dot" }, "·"));
+        const commentLink = el("a", {
+          href: `https://news.ycombinator.com/item?id=${story.id}`,
+          target: "_blank", rel: "noopener noreferrer",
+          style: "color:inherit;text-decoration:none"
+        });
+        commentLink.textContent = plural(story.descendants, "comment");
+        meta.appendChild(commentLink);
+      }
+      if (story.time) {
+        meta.appendChild(el("span", { class: "dot" }, "·"));
+        meta.appendChild(el("span", {}, timeAgo(story.time)));
+      }
+      wrap.appendChild(meta);
+
+      // Source snippet — for backend results, show what the model saw.
+      if (story.text) {
+        const snip = el("div", { class: "snippet" });
+        snip.appendChild(el("span", { class: "label" }, "Self-text: "));
+        const body = story.text.length > 200
+          ? story.text.slice(0, 200).trim() + "…"
+          : story.text;
+        snip.appendChild(document.createTextNode(body));
+        wrap.appendChild(snip);
+      }
+      if (story.comments && story.comments.length) {
+        const c = story.comments[0];
+        const snip = el("div", { class: "snippet" });
+        snip.appendChild(el("span", { class: "label" }, `💬 ${c.by}: `));
+        const body = c.text.length > 200 ? c.text.slice(0, 200).trim() + "…" : c.text;
+        snip.appendChild(document.createTextNode(body));
+        wrap.appendChild(snip);
+      }
+
+      // Live HN feed stories: fetch the top comment lazily.
+      if (story.kids) attachCommentPreview(wrap, story);
+
+      return wrap;
+    }
+
+    function renderStories(stories, opts = {}) {
+      listContainer.innerHTML = "";
+      listContainer.setAttribute("aria-busy", "false");
+      if (!stories.length && !opts.silentEmpty) {
+        const empty = el("div",
+          { style: "padding:40px;text-align:center;color:var(--muted)" },
+          "The feed returned no stories. Try Reload or another feed.");
+        listContainer.appendChild(empty);
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      stories.forEach((story, i) => frag.appendChild(renderStory(story, i + 1)));
+      listContainer.appendChild(frag);
+      updatedEl.textContent =
+        `Updated ${new Date().toLocaleTimeString()} · ${FEED_LABELS[currentFeed.name] || currentFeed.name}`;
+    }
+
+    // ---------- AI rendering (safe) ----------
+    function renderAiAnswer(answer, sources) {
+      listContainer.innerHTML = "";
+      listContainer.setAttribute("aria-busy", "false");
+
+      const answerBox = el("div", { class: "ai-answer" });
+      answerBox.appendChild(el("strong", {}, "🤖 AI Answer"));
+      const body = el("div", {});
+      body.style.whiteSpace = "pre-wrap";
+      body.textContent = answer; // safe: never innerHTML with LLM text
+      answerBox.appendChild(body);
+      listContainer.appendChild(answerBox);
+
+      if (sources.length) {
+        listContainer.appendChild(el("h3", {
+          style: "font-size:0.95rem;margin:16px 0 8px;color:var(--muted)"
+        }, `Sources (${sources.length}):`));
+        sources.forEach((s, i) => listContainer.appendChild(renderStory(s, i + 1)));
+      }
+    }
+
+    // ---------- Streaming answer ----------
+    async function runAskStreaming(query) {
+      renderLoading("Thinking locally…");
+      const answerBox = el("div", { class: "ai-answer" });
+      const answerBody = el("div", {});
+      answerBody.style.whiteSpace = "pre-wrap";
+      const cursor = el("span", { class: "cursor", "aria-hidden": "true" });
+      answerBody.appendChild(cursor);
+      answerBox.appendChild(el("strong", {}, "🤖 AI Answer"));
+      answerBox.appendChild(answerBody);
+
+      listContainer.innerHTML = "";
+      listContainer.setAttribute("aria-busy", "false");
+      listContainer.appendChild(answerBox);
+
+      let sources = [];
+      try {
+        const res = await fetch(`${LOCAL_API}/ask/stream?q=${encodeURIComponent(query)}`);
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullText = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let evt;
+            try { evt = JSON.parse(line); } catch { continue; }
+            if (evt.type === "sources") {
+              sources = evt.data;
+            } else if (evt.type === "token") {
+              fullText += evt.data;
+              cursor.remove();
+              answerBody.textContent = fullText;
+              answerBody.appendChild(cursor);
+            } else if (evt.type === "error") {
+              throw new Error(evt.data);
+            }
+          }
+        }
+        cursor.remove();
+        answerBody.textContent = fullText || "(empty response)";
+      } catch (err) {
+        cursor.remove();
+        answerBody.textContent = `Error: ${err.message}`;
+        answerBody.style.color = "var(--error-text)";
+      }
+
+      if (sources.length) {
+        listContainer.appendChild(el("h3", {
+          style: "font-size:0.95rem;margin:16px 0 8px;color:var(--muted)"
+        }, `Sources (${sources.length}):`));
+        sources.forEach((s, i) => listContainer.appendChild(renderStory(s, i + 1)));
+      }
+      updatedEl.textContent = `AI generated at ${new Date().toLocaleTimeString()}`;
+    }
+
+    // ---------- Modes ----------
+    function applyFilter() {
+      const q = searchInput.value.toLowerCase().trim();
+      const filtered = q
+        ? loadedStories.filter(s =>
+            (s.title || "").toLowerCase().includes(q) ||
+            (s.by || "").toLowerCase().includes(q))
+        : loadedStories;
+
+      if (filtered.length === 0) {
+        listContainer.innerHTML = "";
+        const empty = el("div",
+          { style: "padding:40px;text-align:center;color:var(--muted)" });
+        empty.textContent = `No stories match "${searchInput.value}".`;
+        listContainer.appendChild(empty);
+        return;
+      }
+      renderStories(filtered, { silentEmpty: true });
+    }
+
+    async function runSemantic(q) {
+      renderLoading("Searching by meaning…");
+      try {
+        const res = await fetch(`${LOCAL_API}/search?q=${encodeURIComponent(q)}&k=10`);
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        const hits = await res.json();
+        if (!hits.length) {
+          listContainer.innerHTML = "";
+          listContainer.appendChild(el("div",
+            { style: "padding:40px;text-align:center;color:var(--muted)" },
+            "No matches in the local index. Run ingest.py to add more stories."));
+          return;
+        }
+        renderStories(hits);
+        updatedEl.textContent = `Semantic search · ${hits.length} results`;
+      } catch (err) {
+        renderError(err.message, true);
+      }
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      syncURL();
+      btnKeyword.setAttribute("aria-pressed", mode === "keyword" ? "true" : "false");
+      btnSemantic.setAttribute("aria-pressed", mode === "semantic" ? "true" : "false");
+      btnAsk.setAttribute("aria-pressed", mode === "ask" ? "true" : "false");
+
+      if (mode === "keyword") {
+        searchInput.placeholder = "Filter loaded stories by title or author…";
+        renderStories(loadedStories, { silentEmpty: true });
+      } else if (mode === "semantic") {
+        searchInput.placeholder = "Search by meaning (e.g. \"vector databases\")…";
+        listContainer.innerHTML = "";
+        listContainer.appendChild(el("div",
+          { style: "padding:40px;text-align:center;color:var(--muted)" },
+          "Type a query and press Enter to search the local index."));
+      } else {
+        searchInput.placeholder = "Ask a question about the ingested stories…";
+        listContainer.innerHTML = "";
+        listContainer.appendChild(el("div",
+          { style: "padding:40px;text-align:center;color:var(--muted)" },
+          "Type a question and press Enter."));
+      }
+      searchInput.focus();
+    }
+
+    // ---------- Load stories ----------
+    async function loadStories(feed) {
+      currentFeed.name = feed;
+      syncURL();
+      feedButtons.forEach(b =>
+        b.setAttribute("aria-pressed", b.dataset.feed === feed ? "true" : "false"));
+      renderSkeleton();
+
+      try {
+        const res = await fetch(`${HN_API}/${feed}.json`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const ids = await res.json();
+        if (!Array.isArray(ids) || ids.length === 0) throw new Error("Feed returned no IDs.");
+
+        const results = await Promise.allSettled(
+          ids.slice(0, LIMIT).map(id =>
+            fetch(`${HN_API}/item/${id}.json`).then(r => r.json()))
+        );
+        const stories = results
+          .filter(r => r.status === "fulfilled" && r.value &&
+                       r.value.title && !r.value.deleted && !r.value.dead)
+          .map(r => r.value);
+
+        loadedStories = stories;
+
+        // Restore mode AFTER data arrives so no stale flash.
+        if (currentMode === "keyword") {
+          setMode("keyword");
+        } else {
+          setMode(currentMode);
+        }
+      } catch (err) {
+        renderError(err.message);
+      }
+    }
+
+    // ---------- Digest ----------
+    function runDigest() {
+      setMode("ask");
+      searchInput.value =
+        "Summarize the most important themes in these stories in 3 short bullet points.";
+      runAskStreaming(searchInput.value);
+    }
+
+    // ---------- Wiring ----------
+    feedButtons.forEach(btn =>
+      btn.addEventListener("click", () => loadStories(btn.dataset.feed)));
+    reloadBtn.addEventListener("click", () => loadStories(currentFeed.name));
+    digestBtn.addEventListener("click", runDigest);
+    btnKeyword.addEventListener("click", () => setMode("keyword"));
+    btnSemantic.addEventListener("click", () => setMode("semantic"));
+    btnAsk.addEventListener("click", () => setMode("ask"));
+
+    let debounce;
+    searchInput.addEventListener("input", () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        if (currentMode === "keyword") applyFilter();
+      }, 200);
+    });
+
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || !searchInput.value.trim()) return;
+      const q = searchInput.value.trim();
+      if (currentMode === "semantic") runSemantic(q);
+      else if (currentMode === "ask") runAskStreaming(q);
+    });
+
+    // ---------- Shortcuts ----------
+    function toggleShortcuts(force) {
+      const open = force !== undefined ? force : !shortcutsEl.classList.contains("open");
+      shortcutsEl.classList.toggle("open", open);
+    }
+    shortcutsEl.addEventListener("click", (e) => {
+      if (e.target === shortcutsEl) toggleShortcuts(false);
+    });
+
+    document.addEventListener("keydown", e => {
+      const tag = document.activeElement?.tagName;
+      const inField = tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable;
+
+      if (e.key === "Escape") {
+        if (shortcutsEl.classList.contains("open")) { toggleShortcuts(false); return; }
+        if (document.activeElement === searchInput) {
+          searchInput.value = "";
+          if (currentMode === "keyword") applyFilter();
+        }
+        return;
+      }
+      if (e.key === "?" && !inField) {
+        e.preventDefault(); toggleShortcuts(); return;
+      }
+      if (inField) return;
+
+      if (e.key === "r" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        loadStories(currentFeed.name);
+      } else if (e.key === "/") {
+        e.preventDefault(); searchInput.focus();
+      } else if (e.key === "m") {
+        const order = ["keyword", "semantic", "ask"];
+        setMode(order[(order.indexOf(currentMode) + 1) % order.length]);
+      } else if (e.key === "d") {
+        runDigest();
+      } else if (["1","2","3","4","5"].includes(e.key)) {
+        const feeds = ["topstories","newstories","beststories","askstories","showstories"];
+        loadStories(feeds[parseInt(e.key, 10) - 1]);
+      }
+    });
+
+    // ---------- Init ----------
+    readURL();
+    renderSkeleton();
+    checkBackend();
+    loadStories(currentFeed.name);
+  </script>
+</body>
+</html>
