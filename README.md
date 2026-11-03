@@ -1,39 +1,103 @@
-# HN-Sage: Semantic Search & RAG over Hacker News
+# 🔥 HN-Sage: Semantic Search & RAG over Hacker News
 
-**HN-Sage** is a full-stack, AI-powered search engine that goes beyond keyword matching. It allows you to ask natural language questions (e.g., *"What are people building with Rust lately?"*) and uses a local Large Language Model to synthesize answers based on live Hacker News discussions, complete with source citations.
+**HN-Sage** is an end-to-end Retrieval-Augmented Generation (RAG) pipeline and web application. It upgrades the traditional Hacker News reading experience by allowing users to ask natural language questions about live tech discussions. 
 
-The project uses a **RAG (Retrieval-Augmented Generation)** architecture to ensure the AI answers are grounded in real, up-to-date data rather than hallucinated.
+Instead of simple keyword matching, HN-Sage uses dense vector embeddings to find semantically relevant stories and uses a local Large Language Model to synthesize a cited, hallucination-free answer.
 
-## 🚀 Features
+## 🏗️ System Architecture
 
-- **Hybrid Frontend:** Toggle seamlessly between traditional keyword filtering and AI-powered semantic search.
-- **Vector Search:** Uses `sentence-transformers` to embed the meaning of stories and `FAISS` to perform lightning-fast semantic retrieval.
-- **100% Local AI:** Powered by **Ollama (Llama 3.2)**. No API keys required, no data leaves your machine, and zero inference costs.
-- **Source Citations:** The AI cites its sources using `[1]`, `[2]`, etc., and displays the retrieved Hacker News links below the answer.
-- **Clean UI:** A modern, responsive, light/dark-mode enabled interface built with vanilla HTML/CSS/JS.
+The application is split into a vanilla JavaScript frontend and a Python FastAPI backend. 
 
-## 🧠 How the RAG Pipeline Works
+```text
+┌────────────────────────┐
+│   Frontend (Vanilla)   │
+│   HTML / CSS / JS      │
+└───────────┬────────────┘
+            │ HTTP REST (JSON)
+┌───────────▼────────────┐
+│   Backend (FastAPI)    │
+│   `server.py`          │
+└─────┬────────────┬─────┘
+      │            │
+┌─────▼─────┐  ┌───▼──────────────┐
+│  FAISS    │  │  Ollama (Local)  │
+│  Vector DB│  │  Llama 3.2       │
+└─────▲─────┘  └──────────────────┘
+      │
+┌─────┴─────┐
+│ Embedding │ 
+│ Model     │ 
+│ (MiniLM)  │
+└───────────┘
+✨ Features
+Hybrid UI: Seamlessly toggle between traditional keyword filtering and AI-powered semantic search on the same page.
 
-1. **Ingestion (`ingest.py`):** Fetches top stories from the official Hacker News API. It extracts the title and text, and uses a Sentence Transformer (`all-MiniLM-L6-v2`) to convert them into dense vector embeddings.
-2. **Indexing:** The embeddings are stored in a local `FAISS` vector database (`hn.faiss`), and the story metadata is stored in `SQLite` (`hn.db`).
-3. **Retrieval (`server.py`):** When a user asks a question, the query is embedded into the same vector space. FAISS performs a cosine similarity search to retrieve the top 5 most relevant stories.
-4. **Generation:** The retrieved stories are injected into a prompt context window and sent to the local **Llama 3.2** model via Ollama. The model is instructed to answer *only* using the provided context.
+Vector Retrieval: Uses sentence-transformers to embed the meaning of Hacker News stories, avoiding the pitfalls of exact-match keyword searches.
 
-## 🛠️ Tech Stack
+100% Local AI: Powered by Ollama (Llama 3.2). No API keys are required, no data leaves the machine, and inference costs are zero.
 
-- **Backend:** Python, FastAPI, Uvicorn
-- **Machine Learning:** Sentence-Transformers (Hugging Face), FAISS (Facebook AI Similarity Search)
-- **LLM Engine:** Ollama (Llama 3.2)
-- **Frontend:** HTML5, Vanilla JavaScript, CSS3
-- **Database:** SQLite
+Source Citations: The LLM is prompted to cite its sources (e.g., [1], [2]) which are rendered below the AI response as clickable Hacker News links.
 
-## 💻 How to Run Locally
+Modern UI/UX: Responsive, light/dark mode supported, keyboard shortcuts (/ to search, R to reload), and skeleton loading states.
 
-### Prerequisites
-- Python 3.9+
-- [Ollama installed](https://ollama.com/) on your machine.
+🧠 How the RAG Pipeline Works
+Ingestion (ingest.py): Fetches top stories from the official Hacker News API. The title and text of each story are concatenated and passed through the all-MiniLM-L6-v2 embedding model.
 
-### 1. Download the AI Model
+Indexing: The resulting dense vectors are normalized and stored in a local FAISS (Facebook AI Similarity Search) index. Metadata (title, author, score) is saved to SQLite.
+
+Retrieval: When a user submits a query, it is embedded into the same vector space. FAISS performs an inner-product (cosine similarity) search to retrieve the top 5 most relevant stories.
+
+Generation: The retrieved stories are injected into a strict prompt context window and sent to Llama 3.2 via Ollama. The model synthesizes an answer using only the provided context.
+
+🛠️ Tech Stack
+Machine Learning: Hugging Face (sentence-transformers), FAISS (Vector Database)
+
+LLM Engine: Ollama (Llama 3.2)
+
+Backend: Python, FastAPI, Uvicorn, SQLite
+
+Frontend: Vanilla HTML5, CSS3, JavaScript (ES6+)
+
+💻 Local Setup & Installation
+Prerequisites
+Python 3.9+
+
+Ollama installed on your machine.
+
+1. Install the AI Model
 Open a terminal and pull the Llama model:
-```bash
+
+bash
 ollama run llama3.2
+(You can type /bye to exit the chat once the 2GB download finishes).
+
+2. Set Up the Python Environment
+Clone this repository and navigate into the folder:
+
+bash
+python -m venv .venv
+
+# Windows:
+.venv\Scripts\activate
+# Mac/Linux:
+source .venv/bin/activate
+
+pip install -r requirements.txt
+3. Build the Vector Database
+Run the ingestion script to fetch the latest Hacker News stories and embed them. This generates the local hn.db, hn.faiss, and ids.json files.
+
+bash
+python ingest.py
+4. Start the Application
+You need two terminals running simultaneously.
+
+Terminal 1 (The AI Backend):
+
+bash
+uvicorn server:app --reload
+Terminal 2 (The Frontend):
+
+bash
+python -m http.server 8080
+5. Open the App
+Go to http://localhost:8080 in your web browser. Click the "🤖 Ask AI (RAG)" button and start asking questions!
