@@ -1,36 +1,81 @@
-<div align="center">
+# HN-Sage
+### Semantic Search & Local RAG for Hacker News
 
-# 🔥 HN-Sage
-**Next-Generation Semantic Search & Retrieval-Augmented Generation (RAG) for Hacker News**
+> "Stop keyword searching. Start asking questions."
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![FAISS](https://img.shields.io/badge/FAISS-Vector_Search-FF6F00?style=for-the-badge)](https://github.com/facebookresearch/faiss)
-[![Ollama](https://img.shields.io/badge/Ollama-Local_LLM-black?style=for-the-badge)](https://ollama.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+HN-Sage is a lightweight, fully-local Retrieval-Augmented Generation (RAG) pipeline built on top of the Hacker News API. It replaces traditional keyword filtering with vector similarity search and uses a local Llama 3.2 model to synthesize answers from live tech discussions.
 
-*Ask natural language questions about live tech discussions, powered entirely by a local, privacy-first AI pipeline.*
-</div>
+<br>
 
----
+## ⚡ The Stack
 
-## 📖 Overview
+```text
+[ Frontend ]  Vanilla JS + CSS (Zero dependencies, Dark Mode)
+     │
+     ▼
+[ Backend  ]  Python 3.9+ / FastAPI / Uvicorn
+     │
+     ├──▶ [ Vector DB ]  FAISS (IndexFlatIP)
+     ├──▶ [ Embeddings]  all-MiniLM-L6-v2 (384d)
+     └──▶ [ LLM Engine]  Ollama (Llama 3.2)
 
-**HN-Sage** transforms the traditional Hacker News reading experience into an interactive, conversational interface. While traditional platforms rely on strict keyword matching, HN-Sage leverages dense vector embeddings to understand the *semantic meaning* behind your queries.
+🧠 How it works
+Ingest: Scrapes the top stories from the HN Firebase API.
 
-By combining **FAISS** for high-speed vector retrieval with **Llama 3.2** (via Ollama) for zero-shot text synthesis, HN-Sage acts as a fully local, zero-cost, hallucination-mitigated research assistant. It retrieves relevant discussions, synthesizes a coherent answer, and rigorously cites its sources.
+Embed: Converts titles and text into dense vectors.
 
-## 🏗️ System Architecture
+Index: Stores vectors in FAISS for sub-millisecond retrieval.
 
-The application utilizes a decoupled client-server architecture, prioritizing high-performance ML inference on the backend and a lightweight, responsive client on the frontend.
+Retrieve: Embeds your query, finds the top-5 most similar stories.
 
-```mermaid
-graph TD
-    A[User Query] -->|HTTP POST| B(FastAPI Backend)
-    B -->|Encode Query| C[Sentence-Transformer: MiniLM]
-    C -->|Asymmetric Vector Search| D[(FAISS Index)]
-    D -->|Top-K Relevant Stories| B
-    B -->|Construct Context Prompt| E[Ollama: Llama 3.2]
-    E -->|Synthesized Answer| B
-    B -->|JSON: Answer + Citations| F[Vanilla JS Frontend]
-    F -->|Render UI| A
+Generate: Injects the retrieved context into a prompt and asks Llama 3.2 to answer with citations.
+
+
+🚀 Run it locally
+1. Setup the local AI
+
+bash
+ollama run llama3.2
+2. Setup the project
+
+bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+3. Build the vector index
+
+bash
+python ingest.py
+4. Fire it up (Two terminals)
+
+bash
+# Terminal 1: AI Backend
+uvicorn server:app --reload
+
+# Terminal 2: Frontend
+python -m http.server 8080
+Open http://localhost:8080. Toggle "🤖 Ask AI" and start interrogating the hive mind.
+
+
+📂 Project Structure
+text
+├── ingest.py          # Data pipeline: Fetch HN API -> Embed -> Save to FAISS/SQLite
+├── server.py          # FastAPI backend: /search and /ask endpoints
+├── index.html         # Hybrid UI: Keyword filter + AI RAG interface
+├── hn.db              # SQLite (Story metadata)
+├── hn.faiss           # FAISS (Vector embeddings)
+└── ids.json           # FAISS index to SQLite ID mapping
+
+🛠️ Technical Decisions
+Why FAISS over ChromaDB? FAISS is significantly faster for in-memory vector search and requires zero setup overhead for local prototyping.
+
+Why Ollama? Cloud APIs (OpenAI, Anthropic) cost money and send your data to third parties. Ollama runs Llama 3.2 locally on CPU/Mac Silicon, making this pipeline 100% free and private.
+
+Why Vanilla JS? To prove that you don't need a 500MB node_modules folder to build a fast, responsive, and beautiful UI.
+
+
+🗺️ What's Next?
+□ Hybrid Search (Combine BM25 + Vector search)
+□ Comment Summarization (Fetch top comments for richer context)
+□ Deploy to Cloud (Swap Ollama for Groq API + Deploy FastAPI to Render)
+□ Eval Harness (Track retrieval hit@5 with an LLM-as-a-judge)
