@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+hn.db
+hn.faiss
+ids.json
+.DS_Store
