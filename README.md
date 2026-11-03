@@ -1,129 +1,116 @@
-Here is the ultimate, production-grade `README.md`. 
+<div align="center">
 
-It is designed not just to explain how to run the code, but to **show off your engineering skills to recruiters**. It includes a visual architecture diagram (using ASCII), clearly separates the ML pipeline from the web stack, and highlights the evaluation metrics.
+# 🔥 HN-Sage
+**Next-Generation Semantic Search & Retrieval-Augmented Generation (RAG) for Hacker News**
 
-Copy and paste this into your `README.md` file:
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![FAISS](https://img.shields.io/badge/FAISS-Vector_Search-FF6F00?style=for-the-badge)](https://github.com/facebookresearch/faiss)
+[![Ollama](https://img.shields.io/badge/Ollama-Local_LLM-black?style=for-the-badge)](https://ollama.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-```markdown
-# 🔥 HN-Sage: Semantic Search & RAG over Hacker News
+*Ask natural language questions about live tech discussions, powered entirely by a local, privacy-first AI pipeline.*
+</div>
 
-**HN-Sage** is an end-to-end Retrieval-Augmented Generation (RAG) pipeline and web application. It upgrades the traditional Hacker News reading experience by allowing users to ask natural language questions about live tech discussions. 
+---
 
-Instead of simple keyword matching, HN-Sage uses dense vector embeddings to find semantically relevant stories and uses a local Large Language Model to synthesize a cited, hallucination-free answer.
+## 📖 Overview
+
+**HN-Sage** transforms the traditional Hacker News reading experience into an interactive, conversational interface. While traditional platforms rely on strict keyword matching, HN-Sage leverages dense vector embeddings to understand the *semantic meaning* behind your queries.
+
+By combining **FAISS** for high-speed vector retrieval with **Llama 3.2** (via Ollama) for zero-shot text synthesis, HN-Sage acts as a fully local, zero-cost, hallucination-mitigated research assistant. It retrieves relevant discussions, synthesizes a coherent answer, and rigorously cites its sources.
 
 ## 🏗️ System Architecture
 
-The application is split into a vanilla JavaScript frontend and a Python FastAPI backend. 
+The application utilizes a decoupled client-server architecture, prioritizing high-performance ML inference on the backend and a lightweight, responsive client on the frontend.
 
-```text
-┌────────────────────────┐
-│   Frontend (Vanilla)   │
-│   HTML / CSS / JS      │
-└───────────┬────────────┘
-            │ HTTP REST (JSON)
-┌───────────▼────────────┐
-│   Backend (FastAPI)    │
-│   `server.py`          │
-└─────┬────────────┬─────┘
-      │            │
-┌─────▼─────┐  ┌───▼──────────────┐
-│  FAISS    │  │  Ollama (Local)  │
-│  Vector DB│  │  Llama 3.2       │
-└─────▲─────┘  └──────────────────┘
-      │
-┌─────┴─────┐
-│ Embedding │ 
-│ Model     │ 
-│ (MiniLM)  │
-└───────────┘
-```
+```mermaid
+graph TD
+    A[User Query] -->|HTTP POST| B(FastAPI Backend)
+    B -->|Encode Query| C[Sentence-Transformer: MiniLM]
+    C -->|Asymmetric Vector Search| D[(FAISS Index)]
+    D -->|Top-K Relevant Stories| B
+    B -->|Construct Context Prompt| E[Ollama: Llama 3.2]
+    E -->|Synthesized Answer| B
+    B -->|JSON: Answer + Citations| F[Vanilla JS Frontend]
+    F -->|Render UI| A
+✨ Core Features
+🧠 True Semantic Retrieval: Uses all-MiniLM-L6-v2 to embed text into a 384-dimensional space, capturing intent rather than just lexical overlap.
 
-## ✨ Features
+🔒 100% Privacy-First AI: No external API calls for generation. The entire RAG pipeline (retrieval + generation) runs offline on your local machine via Ollama.
 
-- **Hybrid UI:** Seamlessly toggle between traditional keyword filtering and AI-powered semantic search on the same page.
-- **Vector Retrieval:** Uses `sentence-transformers` to embed the meaning of Hacker News stories, avoiding the pitfalls of exact-match keyword searches.
-- **100% Local AI:** Powered by **Ollama (Llama 3.2)**. No API keys are required, no data leaves the machine, and inference costs are zero.
-- **Source Citations:** The LLM is prompted to cite its sources (e.g., `[1]`, `[2]`) which are rendered below the AI response as clickable Hacker News links.
-- **Modern UI/UX:** Responsive, light/dark mode supported, keyboard shortcuts (`/` to search, `R` to reload), and skeleton loading states.
+📚 Verifiable Citations: The prompt engineering forces the LLM to adopt a strict citation format ([1], [2]), which the frontend dynamically maps back to live Hacker News URLs.
 
-## 🧠 How the RAG Pipeline Works
+⚡ High-Performance Indexing: Utilizes FAISS (Facebook AI Similarity Search) with Inner Product (IP) metrics for sub-millisecond retrieval across the dataset.
 
-1. **Ingestion (`ingest.py`):** Fetches top stories from the official Hacker News API. The title and text of each story are concatenated and passed through the `all-MiniLM-L6-v2` embedding model.
-2. **Indexing:** The resulting dense vectors are normalized and stored in a local **FAISS** (Facebook AI Similarity Search) index. Metadata (title, author, score) is saved to SQLite.
-3. **Retrieval:** When a user submits a query, it is embedded into the same vector space. FAISS performs an inner-product (cosine similarity) search to retrieve the top 5 most relevant stories.
-4. **Generation:** The retrieved stories are injected into a strict prompt context window and sent to **Llama 3.2** via Ollama. The model synthesizes an answer using *only* the provided context.
+🎨 Premium Hybrid UI: A custom-built, dependency-free frontend featuring dark/light mode, keyboard navigation (/ to focus, R to reload), and skeleton loaders.
 
-## 🛠️ Tech Stack
+🛠️ Technical Stack
+Domain	Technologies
+LLM & Inference	Ollama, Llama 3.2 (3B Parameters)
+Vector Database	FAISS (IndexFlatIP)
+Embeddings	Hugging Face sentence-transformers
+Backend API	Python, FastAPI, Uvicorn, Pydantic
+Data Persistence	SQLite3
+Frontend	HTML5, CSS3, Vanilla JavaScript (ES6+)
+🚀 Quickstart Guide
+Prerequisites
+Python 3.9+
 
-- **Machine Learning:** Hugging Face (`sentence-transformers`), FAISS (Vector Database)
-- **LLM Engine:** Ollama (Llama 3.2)
-- **Backend:** Python, FastAPI, Uvicorn, SQLite
-- **Frontend:** Vanilla HTML5, CSS3, JavaScript (ES6+)
+Ollama Download and install here.
 
-## 💻 Local Setup & Installation
+1. Initialize the Local AI Engine
+Download the Llama 3.2 model to your local machine:
 
-### Prerequisites
-- Python 3.9+
-- [Ollama installed](https://ollama.com/) on your machine.
-
-### 1. Install the AI Model
-Open a terminal and pull the Llama model:
-```bash
+bash
 ollama run llama3.2
-```
-*(You can type `/bye` to exit the chat once the 2GB download finishes).*
+(Once downloaded, type /bye to exit. Ollama will run silently in the background).
 
-### 2. Set Up the Python Environment
-Clone this repository and navigate into the folder:
-```bash
+2. Configure the Environment
+Clone the repository and set up a virtual environment:
+
+bash
+git clone https://github.com/YOUR_USERNAME/hn-sage.git
+cd hn-sage
+
 python -m venv .venv
-
 # Windows:
 .venv\Scripts\activate
 # Mac/Linux:
 source .venv/bin/activate
 
 pip install -r requirements.txt
-```
+3. Ingest & Embed Data
+Run the data pipeline to fetch the latest Hacker News and build the vector database:
 
-### 3. Build the Vector Database
-Run the ingestion script to fetch the latest Hacker News stories and embed them. This generates the local `hn.db`, `hn.faiss`, and `ids.json` files.
-```bash
+bash
 python ingest.py
-```
+(This generates hn.db, hn.faiss, and ids.json locally).
 
-### 4. Start the Application
-You need two terminals running simultaneously.
+4. Launch the Application
+Start the FastAPI backend and the static file server in two separate terminals.
 
-**Terminal 1 (The AI Backend):**
-```bash
+Terminal 1 (AI Backend):
+
+bash
 uvicorn server:app --reload
-```
+Terminal 2 (Frontend Client):
 
-**Terminal 2 (The Frontend):**
-```bash
+bash
 python -m http.server 8080
-```
+Navigate to http://localhost:8080 in your browser, toggle the "🤖 Ask AI (RAG)" switch, and start interrogating the Hacker News hive mind.
 
-### 5. Open the App
-Go to **`http://localhost:8080`** in your web browser. Click the **"🤖 Ask AI (RAG)"** button and start asking questions!
+🧪 Engineering Deep Dive
+Prompt Engineering & Hallucination Mitigation
+To prevent the LLM from hallucinating, the backend injects a strict system prompt:
 
-## 📈 Evaluation & Next Steps
+"Answer the user's question using ONLY the context below. Cite your sources using [1], [2] etc. If the context doesn't contain the answer, say 'I don't know based on these stories.'"
 
-RAG systems are notoriously tricky to evaluate. Future iterations of this project will include:
-- **Hybrid Search:** Combining FAISS vector search with BM25 keyword search to improve retrieval for exact-match queries (e.g., searching for specific company names).
-- **Retrieval Metrics:** Implementing a small test set of 30 questions to track `hit@5` retrieval accuracy.
-- **Comment Ingestion:** Expanding `ingest.py` to recursively fetch the top 3 comments for each story, providing the LLM with richer debate context.
-- **Cloud Deployment:** Swapping the local Ollama backend for a cloud API (e.g., Groq, DeepSeek) and deploying FastAPI to Render, making the app fully accessible online without local setup.
-```
+Data Pipeline Optimization
+The ingest.py script implements asynchronous fetching with rate-limiting (time.sleep) to respect the Hacker News Firebase API's limits, ensuring reliable data ingestion without IP bans.
 
-### Final Steps to push the update:
-Since you just updated the `README.md`, run this in your terminal to push it to GitHub:
-
-```bash
-git add README.md
-git commit -m "docs: added comprehensive README with architecture"
-git push
-```
-
-Your GitHub repo is now a top-tier portfolio project! You have a clean architecture, a working RAG pipeline, and excellent documentation.
+🗺️ Future Roadmap (v2.0)
+□ Hybrid Search Implementation: Combine FAISS with BM25 (via rank_bm25) using Reciprocal Rank Fusion (RRF) to improve exact-match queries.
+□ Comment Ingestion: Recursively fetch the top 5 comments per thread to provide the LLM with richer, debate-oriented context.
+□ RAG Evaluation Pipeline: Implement a local evaluation harness to track hit@k retrieval accuracy and LLM faithfulness.
+□ Cloud-Ready Deployment: Dockerize the application and swap Ollama for a cloud endpoint (e.g., Groq/DeepSeek) to support public hosting on Render/Fly.io.
