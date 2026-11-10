@@ -1,0 +1,22 @@
+# Generated data
+hn.db
+hn.faiss
+hn.faiss.tmp
+ids.json
+ids.json.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Env
+.env

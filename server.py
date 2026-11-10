@@ -17,6 +17,10 @@ DB_PATH      = os.getenv("HN_DB", "hn.db")
 INDEX_PATH   = os.getenv("HN_INDEX", "hn.faiss")
 IDS_PATH     = os.getenv("HN_IDS", "ids.json")
 
+DEFAULT_K    = 12
+MAX_K        = 30
+MMR_LAMBDA   = float(os.getenv("MMR_LAMBDA", "0.7"))  # 1=relevance, 0=diversity
+
 log = logging.getLogger("hn_rag")
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s :: %(message)s")
@@ -28,11 +32,29 @@ state = {}
 async def lifespan(app: FastAPI):
     log.info("Loading embedding model…")
     state["model"] = SentenceTransformer("all-MiniLM-L6-v2")
+
     log.info("Loading FAISS index…")
-    state["index"] = faiss.read_index(INDEX_PATH)
+    index = faiss.read_index(INDEX_PATH)
+    state["index"] = index
     with open(IDS_PATH) as f:
         state["ids"] = json.load(f)
-    log.info(f"Index has {state['index'].ntotal} vectors, {len(state['ids'])} id slots.")
+
+    # Pull all raw vectors into memory so MMR can compare without re-encoding.
+    log.info("Materializing raw vectors for MMR…")
+    try:
+        state["all_vectors"] = index.reconstruct_n(0, index.ntotal)  # (N, dim)
+    except Exception as e:
+        log.warning(f"reconstruct_n failed ({e}); MMR will fall back to live encode.")
+        state["all_vectors"] = None
+
+    id_to_rowidx = {}
+    for row_i, sid in enumerate(state["ids"]):
+        # First slot wins — for duplicates (re-embeds), the older vector is
+        # still a valid representative; MMR only needs *a* vector per id.
+        id_to_rowidx.setdefault(sid, row_i)
+    state["id_to_rowidx"] = id_to_rowidx
+
+    log.info(f"Index has {index.ntotal} vectors, {len(state['ids'])} id slots.")
     yield
     state.clear()
 
@@ -85,8 +107,8 @@ def _vector_search(query, k):
     vec = model.encode([query], normalize_embeddings=True).astype("float32")
     k = min(k, index.ntotal)
     scores, idxs = index.search(vec, k)
-    # Dedupe by story id — keep the best score seen. This handles the
-    # "append-only FAISS may contain stale duplicates" case.
+    # Dedupe by story id — keep the best score seen. Handles append-only
+    # FAISS containing stale duplicates after re-embed.
     best = {}
     for score, i in zip(scores[0], idxs[0]):
         if i < 0 or i >= len(ids):
@@ -138,13 +160,62 @@ def _bm25_scores(query, conn, k=30):
             s += idf * tf * (k1 + 1) / denom
         if s > 0:
             scores[sid] = s
-    # Return only the top-k ids (scores normalized by max for RRF input).
     top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:k]
     return dict(top)
 
 
-def hybrid_search(query, k=5, pool=30):
-    """Vector + BM25, fused with Reciprocal Rank Fusion."""
+def _mmr_rerank(query_vec, candidate_ids, relevance, k, lambda_=MMR_LAMBDA):
+    """Greedy MMR. `relevance` maps id → score. Uses in-memory vectors when
+    available; otherwise skips diversity (returns by relevance)."""
+    if not candidate_ids:
+        return []
+    vecs = state.get("all_vectors")
+    rowidx = state.get("id_to_rowidx", {})
+
+    # If we couldn't materialize vectors, fall back to pure relevance.
+    if vecs is None or not rowidx:
+        return sorted(candidate_ids, key=lambda s: relevance.get(s, 0.0),
+                      reverse=True)[:k]
+
+    # Normalize relevance to [0,1] so it's comparable to cosine in [-1,1]→[0,1].
+    max_rel = max((relevance.get(s, 0.0) for s in candidate_ids), default=1.0) or 1.0
+
+    def vec_for(sid):
+        ri = rowidx.get(sid)
+        if ri is None:
+            return None
+        return vecs[ri]
+
+    selected, remaining = [], list(candidate_ids)
+    while remaining and len(selected) < k:
+        best_id, best_score = None, -1e9
+        for sid in remaining:
+            rel = relevance.get(sid, 0.0) / max_rel
+            v = vec_for(sid)
+            if selected and v is not None:
+                div_terms = []
+                for s in selected:
+                    sv = vec_for(s)
+                    if sv is not None:
+                        div_terms.append(float(np.dot(v, sv)))
+                div = max(div_terms) if div_terms else 0.0
+            else:
+                div = 0.0
+            mmr = lambda_ * rel - (1 - lambda_) * div
+            if mmr > best_score:
+                best_score, best_id = mmr, sid
+        if best_id is None:
+            break
+        selected.append(best_id)
+        remaining.remove(best_id)
+    return selected
+
+
+def hybrid_search(query, k=DEFAULT_K, pool=40, mmr_lambda=MMR_LAMBDA):
+    """Vector + BM25, fused with RRF, then diversified with MMR."""
+    model = state["model"]
+    qvec = model.encode([query], normalize_embeddings=True).astype("float32")[0]
+
     with db_conn() as conn:
         vec = _vector_search(query, pool)
         bm  = _bm25_scores(query, conn, pool)
@@ -156,16 +227,17 @@ def hybrid_search(query, k=5, pool=30):
         for r, sid in enumerate(sorted(bm, key=bm.get, reverse=True)):
             ranks[sid] = ranks.get(sid, 0.0) + 1.0 / (60 + r + 1)
 
-        top_ids = sorted(ranks, key=ranks.get, reverse=True)[:k]
-        rows = fetch_story_rows(conn, top_ids)
+        candidate_ids = sorted(ranks, key=ranks.get, reverse=True)[:pool]
+        # MMR relevance = vector cosine (fallback to fused rank score).
+        relevance = {sid: vec.get(sid, ranks.get(sid, 0.0)) for sid in candidate_ids}
+        top_ids = _mmr_rerank(qvec, candidate_ids, relevance, k, mmr_lambda)
 
+        rows = fetch_story_rows(conn, top_ids)
         hits = []
         for sid in top_ids:
             if sid not in rows:
                 continue
-            # Display vector similarity when available, else fused score.
-            sim = vec.get(sid, ranks[sid])
-            hits.append(to_hit(rows[sid], sim))
+            hits.append(to_hit(rows[sid], relevance.get(sid, 0.0)))
         return hits
 
 
@@ -175,10 +247,10 @@ def build_prompt(query, hits):
     for i, h in enumerate(hits):
         block = [f"[{i+1}] Title: {h['title']}", f"By: {h['by']} · {h['score']} points"]
         if h["text"]:
-            block.append(f"Self-text: {h['text'][:800]}")
+            block.append(f"Self-text: {h['text'][:1500]}")
         if h["comments"]:
-            for j, c in enumerate(h["comments"][:3], 1):
-                block.append(f"Comment {j} (by {c['by']}): {c['text'][:400]}")
+            for j, c in enumerate(h["comments"][:5], 1):
+                block.append(f"Comment {j} (by {c['by']}): {c['text'][:600]}")
         context_parts.append("\n".join(block))
 
     context = "\n\n---\n\n".join(context_parts)
@@ -193,6 +265,9 @@ Rules:
 - If the context doesn't answer the question, say so explicitly.
 - Be concise (under 200 words unless the question requires more).
 - Quote a short phrase from the source for any key claim, not just the citation number.
+- Draw on as many distinct sources as possible. If two sources say the same thing,
+  cite both [n][m] rather than just one.
+- Never cite the same source more than twice unless it is the only source for a claim.
 
 Context:
 {context}
@@ -213,6 +288,7 @@ def health():
             "index_vectors": state["index"].ntotal,
             "story_rows": n,
             "model_loaded": "model" in state,
+            "mmr_ready": state.get("all_vectors") is not None,
             "llm_model": OLLAMA_MODEL,
         }
     except Exception as e:
@@ -220,12 +296,12 @@ def health():
 
 
 @app.get("/search")
-def search(q: str, k: int = Query(5, ge=1, le=20)):
+def search(q: str, k: int = Query(DEFAULT_K, ge=1, le=MAX_K)):
     return hybrid_search(q, k=k)
 
 
 @app.get("/ask")
-def ask(q: str, k: int = Query(5, ge=1, le=10)):
+def ask(q: str, k: int = Query(8, ge=1, le=MAX_K)):
     hits = hybrid_search(q, k=k)
     if not hits:
         return {"answer": "No relevant stories found.", "sources": []}
@@ -258,7 +334,7 @@ def ask(q: str, k: int = Query(5, ge=1, le=10)):
 
 
 @app.get("/ask/stream")
-def ask_stream(q: str, k: int = Query(5, ge=1, le=10)):
+def ask_stream(q: str, k: int = Query(8, ge=1, le=MAX_K)):
     """Server-Sent-Events style token stream. Emits one JSON object per line.
     First event: {"type":"sources","data":[...]}
     Then:        {"type":"token","data":"..."}
