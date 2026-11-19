@@ -1,22 +1,39 @@
-# Generated data
-hn.db
-hn.faiss
-hn.faiss.tmp
-ids.json
-ids.json.tmp
-
-# Python
+# ---- Python ----
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
 venv/
 env/
+.pytest_cache/
 
-# Editor / OS
+# ---- SQLite WAL sidecars (ephemeral, regenerate on open) ----
+hn.db-shm
+hn.db-wal
+
+# ---- Backups (don't commit blobs) ----
+*.bak
+*.tmp
+
+# ---- Environment ----
+.env
+.env.local
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Editors ----
 .vscode/
 .idea/
-.DS_Store
+*.swp
 
-# Env
-.env
+# ---- Model cache (if you ever redirect HF_HOME here) ----
+.cache/
+
+# ---- Optional: keep these tracked ----
+# hn.db        ← tracked (schema + data, ~small, useful for demo)
+# hn.faiss     ← tracked (~1.5MB for 1k chunks; uncomment next line to ignore)
+# *.faiss
+# ids.json     ← tracked (legacy compat)
